@@ -1,6 +1,6 @@
 fastapi==0.165.0
 uvicorn[standard]==0.54.0
 python-multipart==0.0.34
-pymupdf==2.1
+pymupdf==1.26.7  # 2.x shifts the rest of a line after a text redaction (MuPDF 1.28 regression)
 httpx==0.28.1
 pydantic-settings==2.16.3

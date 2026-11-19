@@ -38,56 +38,82 @@ def _norm(token: str) -> str:
     return token.strip(_EDGE_PUNCT).casefold()
 
 
-def _word_matches(words: list[tuple], tokens: list[str]) -> list[list[pymupdf.Rect]]:
-    """Find a token sequence in the page's word list.
+def _word_matches(words: list[tuple], tokens: list[str]) -> list[list[tuple]]:
+    """Find a token sequence in the page's word list and return each match as its words.
 
-    Word-level matching avoids substring hits ('Ana' inside 'mañana'). Each match is
-    returned as one rectangle per text line it spans, so the redaction reads as a
-    single block instead of one box per word."""
-    matches: list[list[pymupdf.Rect]] = []
+    Word-level matching avoids substring hits ('Ana' inside 'mañana')."""
     n = len(tokens)
     norms = [_norm(w[4]) for w in words]
-    for i in range(len(words) - n + 1):
-        if norms[i : i + n] != tokens:
-            continue
-        lines: dict[tuple[int, int], pymupdf.Rect] = {}
-        for w in words[i : i + n]:
-            key = (w[5], w[6])  # (block, line)
-            lines[key] = lines[key] | pymupdf.Rect(w[:4]) if key in lines else pymupdf.Rect(w[:4])
-        matches.append(list(lines.values()))
-    return matches
+    return [words[i : i + n] for i in range(len(words) - n + 1) if norms[i : i + n] == tokens]
 
 
-def redact_pdf(pdf_bytes: bytes, mapping: dict[str, str]) -> bytes:
-    """Return a copy of the PDF with every original value replaced by its label."""
+def _glyph_rect(page: pymupdf.Page, word: tuple) -> pymupdf.Rect:
+    """The part of a word box that holds the data itself: 'X5821937Q),' -> 'X5821937Q', so
+    the bracket and comma glued to it are not redacted along with it."""
+    rect = pymupdf.Rect(word[:4])
+    core = word[4].strip(_EDGE_PUNCT)
+    if core and core != word[4]:
+        hits = page.search_for(core, clip=rect)
+        if hits:
+            rect = pymupdf.Rect(hits[0])
+            for h in hits[1:]:
+                rect |= h
+    return rect
+
+
+def _inset(rect: pymupdf.Rect, ratio: float) -> pymupdf.Rect:
+    d = rect.height * ratio
+    return pymupdf.Rect(rect.x0, rect.y0 + d, rect.x1, rect.y1 - d)
+
+
+def redact_pdf(pdf_bytes: bytes, mapping: dict[str, str], pseudonyms: bool = False) -> bytes:
+    """Return a copy of the PDF with every original value removed and replaced by its
+    label (white on a dark box) or by its pseudonym (dark text on a light tint, so the page
+    still reads naturally while it stays visible what was changed).
+
+    Two passes per page:
+
+    1. Glyph removal, one redaction per *word*. Redacting the spaces between words too
+       would break justified text: PDF word spacing (``Tw``) is attached to space
+       characters, so deleting them shifts the rest of the line to the left.
+       Rects are also inset vertically, because redaction deletes every glyph a rect
+       touches and word boxes include line spacing.
+    2. Drawing: one box per text line of each occurrence, with the replacement written
+       once at a font size that fits the box.
+    """
+    fill, color = ((0.87, 0.92, 1.0), (0.04, 0.1, 0.3)) if pseudonyms else ((0.07, 0.09, 0.12), (1, 1, 1))
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     with doc:
         for page in doc:
             words = page.get_text("words", flags=TEXT_FLAGS)
             page_text = re.sub(r"\s+", " ", page.get_text("text", flags=TEXT_FLAGS)).casefold()
-            for label, original in mapping.items():
+            boxes: list[tuple[pymupdf.Rect, str | None]] = []
+            for written, original in mapping.items():
                 tokens = [_norm(t) for t in original.split() if _norm(t)]
                 if not tokens:
                     continue
-                matches = _word_matches(words, tokens)
-                if not matches and re.sub(r"\s+", " ", original).casefold() in page_text:
+                occurrences = [
+                    [((w[5], w[6]), _glyph_rect(page, w)) for w in match] for match in _word_matches(words, tokens)
+                ]
+                if not occurrences and re.sub(r"\s+", " ", original).casefold() in page_text:
                     # PII glued to other text ("Tel:612345678"): fall back to substring search
-                    matches = [[r] for r in page.search_for(original)]
-                for rects in matches:
-                    for i, rect in enumerate(rects):
-                        # Word boxes include line spacing, and redaction removes every glyph
-                        # that touches the rect: without this inset, a redaction could eat
-                        # letters from the line above or below.
-                        inset = rect.height * 0.18
-                        page.add_redact_annot(
-                            pymupdf.Rect(rect.x0, rect.y0 + inset, rect.x1, rect.y1 - inset),
-                            text=label if i == 0 else None,  # label once per occurrence
-                            fontname="helv",
-                            fontsize=max(4, min(8.5, rect.height * 0.62)),
-                            fill=(0.07, 0.09, 0.12),
-                            text_color=(1, 1, 1),
-                            align=pymupdf.TEXT_ALIGN_LEFT,
-                        )
+                    occurrences = [[((0, i), pymupdf.Rect(r))] for i, r in enumerate(page.search_for(original))]
+                for occurrence in occurrences:
+                    lines: dict[tuple, pymupdf.Rect] = {}
+                    for line, rect in occurrence:
+                        page.add_redact_annot(_inset(rect, 0.18), fill=False)
+                        lines[line] = lines[line] | rect if line in lines else pymupdf.Rect(rect)
+                    boxes += [(r, written if i == 0 else None) for i, r in enumerate(lines.values())]
             page.apply_redactions(images=pymupdf.PDF_REDACT_IMAGE_NONE)
+
+            for rect, text in boxes:
+                page.draw_rect(_inset(rect, 0.12 if pseudonyms else 0.16), color=None, fill=fill, overlay=True)
+                if text:
+                    size = rect.height * (0.72 if pseudonyms else 0.5)
+                    width = pymupdf.get_text_length(text, fontname="helv", fontsize=size)
+                    if width > rect.width - 2:
+                        size = max(4.0, size * (rect.width - 2) / width)
+                    baseline = (rect.y0 + rect.y1) / 2 + size * 0.35
+                    page.insert_text((rect.x0 + 1, baseline), text, fontsize=size, fontname="helv", color=color)
         doc.scrub(metadata=True, xml_metadata=True)
         return doc.tobytes(garbage=4, deflate=True)
