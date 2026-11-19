@@ -153,3 +153,30 @@ def test_security_headers(client):
     r = client.get("/")
     assert "default-src 'self'" in r.headers["content-security-policy"]
     assert client.get("/api/health").headers["cache-control"] == "no-store"
+
+
+def test_pseudonym_mode_on_sample_pdf(client, sample_pdf):
+    job = submit_pdf(client, sample_pdf, style="pseudonyms")
+    assert job["status"] == "done", job
+    text = job["anonymized_text"]
+    for secret in ["Javier Morales Ruiz", "12345678Z", "ES91 2100 0418 4502 0005 1332", "Sr. Morales"]:
+        assert secret not in text, secret
+    assert "[NOMBRE_" not in text and "[DNI_" not in text  # real-looking values, not labels
+    assert "[SALUD_1]" in text
+    assert job["audit"]["replacement_style"] == "pseudonyms"
+
+    # The redacted PDF carries the pseudonyms, not the originals
+    pdf = pymupdf.open(stream=client.get(f"/api/jobs/{job['job_id']}/files/redacted.pdf").content)
+    pdf_text = " ".join(page.get_text() for page in pdf)
+    assert "Javier Morales" not in pdf_text and "12345678Z" not in pdf_text
+    assert next(r["value"] for r in job["replacements"] if r["type"] == "DNI") in pdf_text
+
+    # An external AI's reply written with the pseudonyms restores to the real values
+    person = next(r for r in job["replacements"] if r["type"] == "PERSON" and r["label"] == "[NOMBRE_2]")
+    reply = f"{person['value']} acepta el contrato."
+    restored = client.post("/api/deanonymize", json={"text": reply, "mapping": job["mapping"]}).json()
+    assert restored["text"] == f"{job['mapping'][person['value']]} acepta el contrato."
+
+
+def test_rejects_unknown_style(client):
+    assert client.post("/api/jobs", data={"text": "x", "style": "emoji"}).status_code == 422

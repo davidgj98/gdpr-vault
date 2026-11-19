@@ -70,6 +70,15 @@ Lucía Fernández · Navalia Logística</textarea>
       </label>
     </section>
 
+    <section>
+      <h2 class="eyebrow">Replace with</h2>
+      <div class="seg" role="radiogroup" aria-label="Replacement style">
+        <button class="seg-btn style-btn active" role="radio" aria-checked="true" data-style="labels">Labels</button>
+        <button class="seg-btn style-btn" role="radio" aria-checked="false" data-style="pseudonyms">Realistic pseudonyms</button>
+      </div>
+      <p class="hint" id="styleHint">[NOMBRE_1], [DNI_1]… Unmistakably redacted.</p>
+    </section>
+
     <button class="primary" id="run" disabled>Anonymize</button>
 
     <section class="progress" id="progress" hidden>
@@ -111,8 +120,9 @@ Lucía Fernández · Navalia Logística</textarea>
           <p>Contrato de <mark class="t-person">[NOMBRE_1]</mark>, DNI <mark class="t-id">[DNI_1]</mark></p>
         </div>
         <h3>Personal data in, pseudonyms out</h3>
-        <p>Upload a PDF or paste text. Each person, ID, account or address gets a stable label, so the result is
-          still readable by a human or an external AI, and can be re-identified later with the mapping file.</p>
+        <p>Upload a PDF or paste text. Each person, ID, account or address gets a stable label or a realistic
+          fake value, so the result is still readable by a human or an external AI, and can be re-identified
+          later with the mapping file.</p>
       </div>
       <div class="compare" id="compare" hidden>
         <div class="legend" id="legend"></div>
@@ -154,7 +164,7 @@ Lucía Fernández · Navalia Logística</textarea>
         <h2 class="eyebrow">Entities <small>(previews only: the audit log never stores raw values)</small></h2>
         <div class="table-wrap">
           <table class="entities">
-            <thead><tr><th>Label</th><th>Type</th><th>Preview</th><th>Found by</th><th class="num">Occurrences</th></tr></thead>
+            <thead><tr><th>Replaced with</th><th>Type</th><th>Preview</th><th>Found by</th><th class="num">Occurrences</th></tr></thead>
             <tbody id="entityRows"></tbody>
           </table>
         </div>
@@ -166,11 +176,11 @@ Lucía Fernández · Navalia Logística</textarea>
         <ol class="flow">
           <li><b>1</b>Anonymize a document here.</li>
           <li><b>2</b>Send the pseudonymized text to any external tool (ChatGPT, Claude, a translator…).</li>
-          <li><b>3</b>Paste its answer below: labels are swapped back to the real values, locally.</li>
+          <li><b>3</b>Paste its answer below: labels or pseudonyms are swapped back to the real values, locally.</li>
         </ol>
         <div class="restore-cols">
           <div>
-            <label class="eyebrow" for="restoreIn">Text with labels</label>
+            <label class="eyebrow" for="restoreIn">Pseudonymized text</label>
             <textarea id="restoreIn" rows="10" spellcheck="false" placeholder="e.g. Summary: [NOMBRE_1] (ID [DNI_1]) joins on 1 April…"></textarea>
             <div class="restore-actions">
               <button class="primary small" id="restoreBtn">Restore</button>

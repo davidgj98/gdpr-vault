@@ -18,7 +18,7 @@ const TYPE_NAME = {
 };
 const STEPS = ["extracting", "detecting", "anonymizing", "done"];
 
-const state = { input: "pdf", file: null, job: null, mapping: null, ttlTimer: null, polling: false };
+const state = { input: "pdf", style: "labels", file: null, job: null, mapping: null, ttlTimer: null, polling: false };
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
@@ -70,7 +70,7 @@ async function refreshHealth() {
 // ── Input ────────────────────────────────────────────────────────────────────
 function setInput(kind) {
   state.input = kind;
-  $$(".seg-btn").forEach((b) => {
+  $$(".seg-btn[data-input]").forEach((b) => {
     const on = b.dataset.input === kind;
     b.classList.toggle("active", on);
     b.setAttribute("aria-selected", on);
@@ -108,6 +108,21 @@ function updateRunButton() {
   $("#run").disabled = !hasInput || !hasLayer || state.polling;
 }
 
+const STYLE_HINT = {
+  labels: "[NOMBRE_1], [DNI_1]… Unmistakably redacted.",
+  pseudonyms: "Fake names, IDs and IBANs with valid checksums. Reads naturally; health data keeps a label.",
+};
+
+function setStyle(style) {
+  state.style = style;
+  $$(".style-btn").forEach((b) => {
+    const on = b.dataset.style === style;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-checked", on);
+  });
+  $("#styleHint").textContent = STYLE_HINT[style];
+}
+
 // ── Processing ───────────────────────────────────────────────────────────────
 function setProgress(status, text, isError = false) {
   $("#progress").hidden = false;
@@ -128,6 +143,7 @@ async function run() {
   else form.append("text", $("#textInput").value);
   form.append("use_regex", $("#useRegex").checked);
   form.append("use_llm", $("#useLlm").checked);
+  form.append("style", state.style);
 
   if (state.job) deleteJob(true);
   state.polling = true;
@@ -192,7 +208,7 @@ function render(job) {
   $("#emptyState").hidden = true;
   $("#compare").hidden = false;
   $("#origText").innerHTML = highlight(job.original_text, reps, "start", "end", (r) => job.original_text.slice(r.start, r.end));
-  $("#anonText").innerHTML = highlight(job.anonymized_text, reps, "out_start", "out_end", (r) => r.label);
+  $("#anonText").innerHTML = highlight(job.anonymized_text, reps, "out_start", "out_end", (r) => r.value);
   $("#origMeta").textContent = [a.pages && `${a.pages} page${a.pages > 1 ? "s" : ""}`, `${a.characters.toLocaleString()} chars`].filter(Boolean).join(" · ");
 
   const present = [...new Set(reps.map((r) => r.type))];
@@ -214,7 +230,7 @@ function render(job) {
   renderAudit(job);
   startTtl(job.expires_in);
   $("#restoreIn").value ||= job.anonymized_text.slice(0, 600);
-  $("#mappingInfo").textContent = `Using mapping from this job (${Object.keys(job.mapping).length} labels)`;
+  $("#mappingInfo").textContent = `Using mapping from this job (${Object.keys(job.mapping).length} entries)`;
 }
 
 function renderAudit(job) {
@@ -255,7 +271,7 @@ function renderAudit(job) {
 
   $("#entityRows").innerHTML = a.entities
     .map((e) => `<tr>
-      <td><mark class="t-${CATEGORY[e.type]}">${esc(e.label)}</mark></td>
+      <td><mark class="t-${CATEGORY[e.type]}">${esc(e.replacement)}</mark>${e.replacement !== e.label ? `<span class="id">${esc(e.label)}</span>` : ""}</td>
       <td>${esc(TYPE_NAME[e.type] || e.type)}</td>
       <td>${esc(e.preview)}</td>
       <td>${e.methods.map((m) => `<span class="method ${m}">${m}</span>`).join("")}</td>
@@ -311,7 +327,7 @@ async function restore() {
       body: JSON.stringify({ text: $("#restoreIn").value, mapping: state.mapping }),
     });
     $("#restoreOut").textContent = text;
-    toast(`${restored} label${restored === 1 ? "" : "s"} restored.`);
+    toast(`${restored} value${restored === 1 ? "" : "s"} restored.`);
   } catch (e) {
     toast(e.message, true);
   }
@@ -321,9 +337,11 @@ async function loadMapping(file) {
   try {
     const data = JSON.parse(await file.text());
     const mapping = data.mapping || data;
-    if (typeof mapping !== "object" || !Object.keys(mapping).every((k) => /^\[[A-Z_]+_\d+\]$/.test(k))) throw new Error();
+    const ok = mapping && typeof mapping === "object" && !Array.isArray(mapping)
+      && Object.values(mapping).every((v) => typeof v === "string");
+    if (!ok || !Object.keys(mapping).length) throw new Error();
     state.mapping = mapping;
-    $("#mappingInfo").textContent = `Using ${file.name} (${Object.keys(mapping).length} labels)`;
+    $("#mappingInfo").textContent = `Using ${file.name} (${Object.keys(mapping).length} entries)`;
   } catch {
     toast("That file is not a GDPR-Vault mapping.json.", true);
   }
@@ -331,7 +349,8 @@ async function loadMapping(file) {
 
 // ── Wiring ───────────────────────────────────────────────────────────────────
 function init() {
-  $$(".seg-btn").forEach((b) => b.addEventListener("click", () => setInput(b.dataset.input)));
+  $$(".seg-btn[data-input]").forEach((b) => b.addEventListener("click", () => setInput(b.dataset.input)));
+  $$(".style-btn").forEach((b) => b.addEventListener("click", () => setStyle(b.dataset.style)));
 
   const drop = $("#drop");
   $("#fileInput").addEventListener("change", (e) => setFile(e.target.files[0]));

@@ -13,6 +13,7 @@ from app.detectors.llm import LLMUnavailableError, OllamaDetector
 from app.detectors.regex import detect_regex
 from app.jobs import Job, JobStatus
 from app.pdf import PDFError, extract_pages, redact_pdf
+from app.surrogates import SurrogateFactory
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ log = logging.getLogger(__name__)
 class Options:
     use_regex: bool = True
     use_llm: bool = True
+    pseudonyms: bool = False  # realistic fake values instead of [LABEL_N]
 
 
 class ProcessingError(Exception):
@@ -89,11 +91,11 @@ async def _run(job: Job, text: str | None, options: Options, settings: Settings,
 
     # 3. Pseudonymization
     job.status, job.progress = JobStatus.ANONYMIZING, "Pseudonymizing"
-    result = anonymize(text, spans)
+    result = anonymize(text, spans, SurrogateFactory(text) if options.pseudonyms else None)
 
     if job.source == "pdf" and result.mapping:
         job.progress = "Redacting PDF"
-        job.redacted_pdf = await asyncio.to_thread(redact_pdf, job.pdf_bytes, result.mapping)
+        job.redacted_pdf = await asyncio.to_thread(redact_pdf, job.pdf_bytes, result.mapping, options.pseudonyms)
 
     by_type = Counter(r.type.value for r in result.replacements)
     audit = {
@@ -103,6 +105,7 @@ async def _run(job: Job, text: str | None, options: Options, settings: Settings,
         "duration_ms": round((time.perf_counter() - started) * 1000),
         "pages": pages,
         "characters": len(text),
+        "replacement_style": "pseudonyms" if options.pseudonyms else "labels",
         "layers": {
             "regex": {"enabled": options.use_regex, "occurrences": regex_count},
             "llm": llm_info,

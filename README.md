@@ -45,17 +45,25 @@ GDPR Art. 4(5). See [GDPR_NOTES.md](GDPR_NOTES.md) for how the design maps to th
     companies, birth dates and health data (a special category under Art. 9).
   - **Resolution rules**: a validated regex hit beats the LLM when they overlap, an LLM address absorbs
     the postal code inside it, and entities the model invents are discarded because they are not in the text.
-- **Consistent pseudonyms**: the same person gets the same label throughout the document. Once a full
-  name is known, honorific variants such as *"el Sr. Morales"* are caught as well.
+- **Two replacement styles**:
+  - **Labels**: `[NOMBRE_1]`, `[DNI_1]`… unmistakably redacted.
+  - **Realistic pseudonyms**: *"Javier Morales Ruiz, DNI 12345678Z"* becomes *"Pablo Cabrera Iglesias,
+    DNI 34567148B"*. Fake identifiers keep a valid checksum and the original format, names keep their
+    honorific and gender, an email follows its owner's new name, and health data still gets a label
+    (inventing a different diagnosis would change the meaning). The text reads naturally, which helps
+    both people and external AI tools.
+- **Consistent pseudonyms**: the same person gets the same replacement throughout the document. Once a full
+  name is known, honorific variants such as *"el Sr. Morales"* are caught too, and become *"el Sr. Cabrera"*.
 - **True PDF redaction**: the underlying text is removed, not just covered with a black box, and document metadata (author, title) is scrubbed.
-- **Re-identification** (Restore tab, `POST /api/deanonymize`): paste the external AI's answer to get the real values back.
+- **Re-identification** (Restore tab, `POST /api/deanonymize`): paste the external AI's answer to get the real values
+  back. It tolerates the changes such tools make, such as capitals or re-wrapped lines.
 - **Audit log with no raw PII**: it records labels, types, counts, detection method and masked previews (`J***** M******`).
 - **Privacy by design**: results are kept in memory and erased after a TTL (15 min by default) or on demand. The UI is held to a strict CSP with no third-party requests (not even web fonts), and API responses are sent with `Cache-Control: no-store`.
 - **Fails loudly**: if Ollama is down, the job still masks the structured identifiers, but the UI and the audit log say plainly that names and addresses were **not** checked.
 
-| Compare | Redacted PDF | Audit log | Restore |
-|---|---|---|---|
-| ![Compare](docs/img/compare.jpg) | ![Redacted PDF](docs/img/redacted-pdf.jpg) | ![Audit](docs/img/audit.jpg) | ![Restore](docs/img/restore.jpg) |
+| Compare | Realistic pseudonyms | Redacted PDF | Audit log | Restore |
+|---|---|---|---|---|
+| ![Compare](docs/img/compare.jpg) | ![Realistic pseudonyms](docs/img/pseudonyms.jpg) | ![Redacted PDF](docs/img/redacted-pdf.jpg) | ![Audit](docs/img/audit.jpg) | ![Restore](docs/img/restore.jpg) |
 
 ## Quick start
 
@@ -78,7 +86,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
 ollama pull qwen3:8b               # or any instruction-tuned model, see .env.example
 uvicorn app.main:app --reload
-pytest                             # 56 tests; the LLM is mocked, so Ollama is not needed
+pytest                             # 71 tests; the LLM is mocked, so Ollama is not needed
 python eval/evaluate.py             # precision / recall against the labelled set (needs Ollama)
 ```
 
@@ -92,7 +100,7 @@ flowchart LR
     E --> F[Locate strings in source<br/>drop hallucinations]
     F --> G[Honorific variants]
     C & G --> H[Overlap resolution]
-    H --> I[Single-pass span replacement]
+    H --> I[Single-pass span replacement<br/>labels or surrogates]
     I --> J[anonymized.txt]
     I --> K[redacted.pdf]
     I --> L[audit.json]
@@ -109,6 +117,9 @@ A few design decisions:
 | Small LLM chunks (about 1,800 characters) with overlap | Smaller 3–8B models lose recall on long inputs. Overlap keeps entities that fall on a chunk boundary. |
 | Ligatures expanded at extraction | PDF text such as `aﬁliación` (with an `ﬁ` ligature) would not match what the model returns. |
 | Redaction rectangles inset vertically | Redaction deletes every glyph the rectangle touches. Without the inset, it removed letters from the neighbouring line (this is covered by a regression test). |
+| Redaction word by word, boxes drawn afterwards | Justified PDF text spaces words with adjustments attached to the space characters; deleting those spaces would move the rest of the line. Punctuation glued to a value (`X5821937Q),`) is kept. |
+| PyMuPDF pinned to 1.26 | PyMuPDF 2.x (MuPDF 1.28) moves the rest of a line to the left after a text redaction, so later words slide under the boxes. A regression test fails on 2.x. |
+| Pseudonyms drawn at random, checked against the document | A surrogate derived from the original could be reversed. One that already appears in the text would be "restored" into something it never was. |
 
 ## API
 
@@ -116,11 +127,11 @@ Interactive documentation is at `/docs`.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/api/jobs` | Multipart: `file` (PDF) **or** `text`, plus `use_regex` and `use_llm`. Returns `202` with a `job_id`. |
+| `POST` | `/api/jobs` | Multipart: `file` (PDF) **or** `text`, plus `use_regex`, `use_llm` and `style` (`labels` or `pseudonyms`). Returns `202` with a `job_id`. |
 | `GET` | `/api/jobs/{id}` | Status and progress; when done, the texts, replacement offsets, mapping and audit. |
 | `GET` | `/api/jobs/{id}/files/{name}` | `anonymized.txt`, `redacted.pdf`, `audit.json` or `mapping.json` |
 | `DELETE` | `/api/jobs/{id}` | Erase the job immediately |
-| `POST` | `/api/deanonymize` | `{text, mapping}` → `{text, restored}` (stateless) |
+| `POST` | `/api/deanonymize` | `{text, mapping}` → `{text, restored}` (stateless, works for both styles) |
 | `GET` | `/api/health` | Whether Ollama is reachable and the model is pulled |
 
 ```bash
@@ -137,6 +148,7 @@ app/
   config.py          settings from environment variables / .env
   pipeline.py        extract → detect → pseudonymize → redact, plus the audit
   anonymizer.py      overlap resolution, labelling, span replacement, restore
+  surrogates.py      realistic fake values: valid checksums, same format, consistent names
   pdf.py             extraction and true redaction (PyMuPDF)
   jobs.py            in-memory job store with expiry
   detectors/
@@ -145,7 +157,7 @@ app/
   api/routes.py      REST endpoints
 frontend/            static UI (vanilla JS, no build step, no external assets)
 samples/             generator for the synthetic demo contract
-tests/               regex, anonymizer and end-to-end API tests (LLM mocked)
+tests/               regex, anonymizer, pseudonyms, PDF and end-to-end API tests (LLM mocked)
 eval/                labelled documents + precision/recall script
 ```
 

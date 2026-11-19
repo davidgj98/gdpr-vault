@@ -24,6 +24,32 @@ the output may approach anonymization, but quasi-identifiers (a rare job title p
 town, for example) can still single people out. Review before treating output as
 anonymous.
 
+### Labels or realistic pseudonyms
+
+The same entity can be replaced by a label (`[NOMBRE_2]`) or by a realistic fake value
+(`Pablo Cabrera Iglesias`, a fake DNI with a valid check letter, a fake IBAN with valid
+check digits). Both are pseudonymization in the Art. 4(5) sense: what makes it so is that
+re-identification needs the separately kept mapping, not the shape of the replacement.
+
+Realistic pseudonyms keep the text natural for readers and external AI tools, but they
+need extra care, which the implementation handles:
+
+- **Never derived from the original.** Surrogates are drawn at random per job, so they leak
+  nothing about the real value (a hash or a deterministic transform could be reversed or
+  linked across documents).
+- **No collisions with the document.** A surrogate (or, for names, any word of it) that
+  already appears in the original text is rejected; otherwise restoring would rewrite
+  unrelated text.
+- **Reserved values where they exist.** Fake emails use `example.com` (RFC 2606), which
+  can never be a real mailbox. Spain has no reserved range for DNIs, IBANs or phone
+  numbers, so a random but valid value could coincide with a real one. Without the rest
+  of the original record it identifies no one, but the output should not be used to
+  contact anyone or make payments.
+- **Special-category data is not faked.** Replacing a diagnosis with a different one would
+  change what the document says about a person, so `HEALTH` always keeps a label.
+- **Visibly marked in the PDF.** Pseudonyms are printed on a light tint, so a reader of the
+  redacted PDF can tell which values are not real.
+
 ## Data protection by design and by default (Art. 25)
 
 - **Local processing**: the LLM runs on Ollama on the same machine or network. No

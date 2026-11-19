@@ -32,6 +32,10 @@ async def create_job(
     text: Annotated[str | None, Form(description="Plain text, as an alternative to a PDF")] = None,
     use_regex: Annotated[bool, Form()] = True,
     use_llm: Annotated[bool, Form()] = True,
+    style: Annotated[
+        Literal["labels", "pseudonyms"],
+        Form(description="`labels` ([NOMBRE_1]) or `pseudonyms` (realistic fake values)"),
+    ] = "labels",
 ) -> dict:
     """Start an anonymization job. Poll `GET /api/jobs/{job_id}` for the result."""
     settings = request.app.state.settings
@@ -57,7 +61,8 @@ async def create_job(
     else:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Send a PDF `file` or a `text` field.")
 
-    task = asyncio.create_task(run_job(job, text, Options(use_regex, use_llm), settings, request.app.state.llm))
+    options = Options(use_regex, use_llm, pseudonyms=style == "pseudonyms")
+    task = asyncio.create_task(run_job(job, text, options, settings, request.app.state.llm))
     tasks: set = request.app.state.tasks
     tasks.add(task)
     task.add_done_callback(tasks.discard)
@@ -96,6 +101,7 @@ async def download(request: Request, job_id: str, kind: FileKind, inline: bool =
             payload = {
                 "document": job.filename,
                 "warning": "Contains personal data. Store securely.",
+                "style": job.result["audit"]["replacement_style"],
                 "mapping": job.result["mapping"],
             }
             body, media = json.dumps(payload, indent=2, ensure_ascii=False).encode(), "application/json"

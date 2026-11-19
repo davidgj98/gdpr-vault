@@ -17,3 +17,6 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["RUF001"]  # Spanish text contains intentional non-ASCII characters
+
+[tool.ruff.lint.per-file-ignores]
+"app/surrogates.py" = ["SIM905"]  # word lists read better as wrapped strings
