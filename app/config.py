@@ -10,7 +10,7 @@ class Settings(BaseSettings):
 
     # LLM layer (Ollama)
     ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b"
+    ollama_model: str = "qwen3:8b"  # chosen by eval/evaluate.py, see README
     ollama_timeout: float = 120.0
     llm_chunk_size: int = 1800  # characters per LLM call
     llm_chunk_overlap: int = 200
