@@ -28,11 +28,13 @@ ProgressCallback = Callable[[int, int], Awaitable[None]]
 SYSTEM_PROMPT = """You are a GDPR data-protection engine that finds personal data in Spanish business documents.
 
 Extract every span of text that identifies or relates to a natural person:
-- PERSON: full or partial names of people (e.g. "Juan Pérez García", "Sra. López").
+- PERSON: names of people, full or partial, including a lone first name in a greeting or
+  signature (e.g. "Juan Pérez García", "Sra. López", "Marta").
 - ADDRESS: street addresses (street, number, floor, city). Not just a city or country on its own.
 - ORGANIZATION: names of companies or institutions that are parties in the document.
 - DATE_OF_BIRTH: birth dates (only when the text says or implies it is a birth date).
-- HEALTH: medical conditions, diagnoses, disabilities, sick leave reasons.
+- HEALTH: physical or mental health conditions, diagnoses, disabilities, the reason for a
+  sick leave (e.g. "diabetes tipo 2", "depresión", "lesión de rodilla"). Extract the condition itself.
 
 Rules:
 - Copy each entity EXACTLY as it appears in the text, character by character.
@@ -92,9 +94,13 @@ def locate(text: str, entity: str, pii_type: PIIType) -> list[Span]:
     return [Span(m.start(), m.end(), m.group(), pii_type, "llm") for m in _entity_pattern(entity).finditer(text)]
 
 
+_GREETING = re.compile(r"^(?:hola|buen[oa]s(?: días| tardes| noches)?|estimad[oa]s?|querid[oa]s?|gracias)[\s,]+", re.I)
+
+
 def _clean(value: str) -> str:
-    """Trim punctuation the model drags along, but keep the dot of 'S.L.' / 'S.A.'."""
-    value = value.strip(" \t\n,;:")
+    """Trim what the model drags along: punctuation and greetings ('Hola Marta' -> 'Marta'),
+    but keep the dot of 'S.L.' / 'S.A.'."""
+    value = _GREETING.sub("", value.strip(" \t\n,;:"))
     while value.endswith(".") and not re.search(r"(?:^|[\s.])[A-Z]\.$", value):
         value = value[:-1].rstrip()
     return value

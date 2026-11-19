@@ -1,7 +1,7 @@
 import itertools
 
 from app.anonymizer import anonymize, deanonymize, preview, resolve_overlaps
-from app.detectors.llm import chunk_text, honorific_variants, locate
+from app.detectors.llm import _clean, chunk_text, honorific_variants, locate
 from app.detectors.regex import detect_regex
 from app.entities import PIIType, Span
 
@@ -78,6 +78,13 @@ def test_honorific_variants():
     text = "Javier Morales Ruiz firma. Después el Sr. Morales y la Dña. Ruiz Pérez llegan."
     found = {s.text for s in honorific_variants(text, ["Javier Morales Ruiz"])}
     assert found == {"Sr. Morales", "Dña. Ruiz Pérez"}
+
+
+def test_llm_output_cleanup():
+    assert _clean("Navalia Logística S.L.") == "Navalia Logística S.L."  # keep company suffix dot
+    assert _clean("Javier Morales.") == "Javier Morales"
+    assert _clean("Hola Marta,") == "Marta"
+    assert _clean("Gracias, Raúl") == "Raúl"
 
 
 def test_chunks_cover_text_with_overlap():
