@@ -384,3 +384,9 @@ mark.hot { background: color-mix(in srgb, var(--c) 32%, transparent); color: var
 /* alignment tweaks */
 .doc > header { min-height: 42px; }
 .retention .ghost { white-space: nowrap; }
+@media (max-width: 560px) {
+  .toplink { display: none; }
+  .brand-name { white-space: nowrap; }
+  .pill { max-width: 52vw; }
+  .pill span { overflow: hidden; text-overflow: ellipsis; }
+}

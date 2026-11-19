@@ -56,7 +56,7 @@ async function refreshHealth() {
       pill.title = "Local LLM ready (Ollama)";
     } else {
       pill.className = "pill warn";
-      pill.lastElementChild.textContent = llm.reachable ? `LLM · pulling ${llm.model}?` : "LLM offline · regex only";
+      pill.lastElementChild.textContent = llm.reachable ? "LLM · model not pulled" : "LLM offline · regex only";
       pill.title = llm.reachable
         ? `Ollama is up but ${llm.model} is not pulled yet`
         : "Ollama is not reachable: only structured identifiers will be detected";
