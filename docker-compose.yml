@@ -1,0 +1,46 @@
+# docker compose up --build            -> CPU
+# docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build   -> NVIDIA GPU
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"   # bound to localhost only
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:7b}
+      JOB_TTL_SECONDS: ${JOB_TTL_SECONDS:-900}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+    depends_on:
+      ollama:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp   # multipart uploads are spooled here, in RAM
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    # Not published to the host: only the app container can reach it.
+
+  # One-shot: downloads the model on first start (cached in the volume afterwards).
+  # The UI works in regex-only mode while this runs.
+  model-pull:
+    image: ollama/ollama:latest
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull", "${OLLAMA_MODEL:-qwen2.5:7b}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
+volumes:
+  ollama_data:
