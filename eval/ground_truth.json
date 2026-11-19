@@ -1,0 +1,44 @@
+[
+  {
+    "file": "frontend/samples/contrato_ficticio.pdf",
+    "entities": [
+      "Lucía Fernández Ortega",
+      "48291037F",
+      "Navalia Logística Integral S.L.",
+      "Calle de Alcalá 214, 3º B, 28028 Madrid",
+      "Javier Morales Ruiz",
+      "14 de julio de 1991",
+      "12345678Z",
+      "28/12345678/40",
+      "Avenida de la Constitución 45, 2º izquierda, 41001 Sevilla",
+      "ES91 2100 0418 4502 0005 1332",
+      "Sr. Morales",
+      "hernia discal lumbar",
+      "javier.morales.ruiz@correo-ejemplo.es",
+      "+34 612 345 678",
+      "Elena Ruiz Navarro",
+      "X5821937Q",
+      "91 456 78 90",
+      "dpo@navalia-ejemplo.es"
+    ]
+  },
+  {
+    "file": "eval/docs/email_rrhh.txt",
+    "entities": [
+      "Marta",
+      "Carmen Vidal Soler",
+      "71938264Z",
+      "08/40517299/77",
+      "ansiedad generalizada",
+      "ES74 0081 0216 7300 0123 4567",
+      "Carrer de Provença 312, 4º 2ª, 08037 Barcelona",
+      "655 98 32 10",
+      "carmen.vidal.s@correo-ejemplo.com",
+      "4111 1111 1111 1111",
+      "Andrés Molina Castro",
+      "Óscar Prieto",
+      "Grupo Hostelero Mediterráneo S.A.",
+      "Raúl"
+    ]
+  }
+]
