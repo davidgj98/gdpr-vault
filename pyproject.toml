@@ -1,0 +1,19 @@
+[project]
+name = "gdpr-vault"
+version = "1.0.0"
+description = "Local-first PII detection and pseudonymization for Spanish business documents"
+requires-python = ">=3.12"
+license = "MIT"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001"]  # Spanish text contains intentional non-ASCII characters
