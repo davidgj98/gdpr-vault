@@ -5,13 +5,16 @@ Upload a contract, payslip or CV. GDPR-Vault finds the personal data with checks
 patterns plus a local LLM, replaces each item with a stable label such as `[NOMBRE_1]` or `[DNI_1]`,
 and returns a properly redacted PDF. Nothing is sent to an external service.
 
+On the labelled evaluation set it masks **99.5% of personal-data characters** and nothing
+that isn't personal data, at about 5 seconds per page on a laptop GPU ([evaluation](#evaluation)).
+
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)
 ![Ollama](https://img.shields.io/badge/LLM-Ollama%20(local)-black)
 [![CI](https://github.com/davidgj98/gdpr-vault/actions/workflows/ci.yml/badge.svg)](https://github.com/davidgj98/gdpr-vault/actions/workflows/ci.yml)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-![Side-by-side comparison of the original and the pseudonymized contract](docs/img/compare.jpg)
+![Demo: a contract is uploaded, its personal data detected and pseudonymized, the PDF redacted and the labels restored](docs/img/demo.gif)
 
 ---
 
@@ -50,9 +53,9 @@ GDPR Art. 4(5). See [GDPR_NOTES.md](GDPR_NOTES.md) for how the design maps to th
 - **Privacy by design**: results are kept in memory and erased after a TTL (15 min by default) or on demand. The UI is held to a strict CSP with no third-party requests (not even web fonts), and API responses are sent with `Cache-Control: no-store`.
 - **Fails loudly**: if Ollama is down, the job still masks the structured identifiers, but the UI and the audit log say plainly that names and addresses were **not** checked.
 
-| Redacted PDF | Audit log | Restore |
-|---|---|---|
-| ![Redacted PDF](docs/img/redacted-pdf.jpg) | ![Audit](docs/img/audit.jpg) | ![Restore](docs/img/restore.jpg) |
+| Compare | Redacted PDF | Audit log | Restore |
+|---|---|---|---|
+| ![Compare](docs/img/compare.jpg) | ![Redacted PDF](docs/img/redacted-pdf.jpg) | ![Audit](docs/img/audit.jpg) | ![Restore](docs/img/restore.jpg) |
 
 ## Quick start
 
@@ -65,7 +68,7 @@ docker compose up --build          # add  -f docker-compose.yml -f docker-compos
 
 Open <http://localhost:8000> and click **"Try it with a fictitious employment contract"**.
 
-The first start downloads the model (`qwen2.5:7b`, about 4.7 GB) into a volume. While that runs,
+The first start downloads the model (`qwen3:8b`, about 5.2 GB) into a volume. While that runs,
 the header shows the LLM as unavailable and the app works in regex-only mode.
 
 ### Local development
@@ -73,9 +76,10 @@ the header shows the LLM as unavailable and the app works in regex-only mode.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements-dev.txt
-ollama pull qwen2.5:7b             # or any instruction-tuned model, see .env.example
+ollama pull qwen3:8b               # or any instruction-tuned model, see .env.example
 uvicorn app.main:app --reload
-pytest                             # 55 tests; the LLM is mocked, so Ollama is not needed
+pytest                             # 56 tests; the LLM is mocked, so Ollama is not needed
+python eval/evaluate.py             # precision / recall against the labelled set (needs Ollama)
 ```
 
 ## How it works
@@ -142,17 +146,37 @@ app/
 frontend/            static UI (vanilla JS, no build step, no external assets)
 samples/             generator for the synthetic demo contract
 tests/               regex, anonymizer and end-to-end API tests (LLM mocked)
+eval/                labelled documents + precision/recall script
 ```
 
-## Measured performance
+## Evaluation
 
-On the sample contract (one A4 page, 18 entities), RTX 3070 Laptop with 8 GB VRAM:
+`eval/evaluate.py` measures the pipeline against two hand-labelled synthetic documents with 32
+personal-data items: the demo contract (PDF) and an HR email (text). The email includes traps that
+must **not** be masked: a case number, a law, amounts, a tax form number and a public body.
 
-| Model | Time (warm) | Notes |
-|---|---|---|
-| `qwen2.5:3b` | about 7 s | Good recall; mislabels some IDs, but the regex priority rule fixes them |
-| `qwen3:8b` | about 8 s | Best results in testing; also catches the date of birth and the health data |
-| regex only | < 50 ms | Structured identifiers only |
+```bash
+python eval/evaluate.py qwen2.5:3b qwen2.5:7b qwen3:8b
+```
+
+Results on an RTX 3070 Laptop GPU (8 GB VRAM), models warm:
+
+| Detector | Entity precision | Entity recall | Entity F1 | PII characters masked | Masked characters that were PII | Time / doc |
+|---|---|---|---|---|---|---|
+| regex only | 83% | 47% | 0.60 | 38.8% | 100% | < 1 ms |
+| `qwen2.5:3b` | 82% | 72% | 0.77 | 84.7% | 100% | 6.1 s |
+| `qwen2.5:7b` | 100% | 91% | 0.95 | 97.2% | 100% | 8.2 s |
+| **`qwen3:8b`** (default) | **100%** | **97%** | **0.98** | **99.5%** | **100%** | **5.3 s** |
+
+- **Entity level** is strict: splitting an address into two pieces counts as one miss plus two
+  false positives. The regex-only "false positives" are postal codes that belong to an address
+  labelled as a whole.
+- **Character level** answers what matters for an anonymizer: how much of the personal data ends up hidden,
+  and whether anything else was masked. No detector masked anything outside the labelled data.
+- **Why `qwen3:8b` is the default**: it scores best on every metric and was also the fastest.
+  The only item it misses is a first name alone in an email signature ("Raúl").
+- This evaluation set is the one used to tune the prompt, so the figures are optimistic. Treat them as
+  a regression check, not as a benchmark of real-world recall.
 
 ## Limitations
 
